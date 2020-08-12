@@ -53,6 +53,7 @@ func writeFields(fields []Field) string {
 	return buf.String()
 }
 
+// Trace is safe to be shared between goroutines
 type Trace struct {
 	operation    string
 	lg           *zap.Logger
@@ -93,7 +94,7 @@ func (t *Trace) SetStartTime(time time.Time) {
 }
 
 func (t *Trace) InsertStep(at int, time time.Time, msg string, fields ...Field) {
-	newStep := step{time, msg, fields}
+	newStep := step{time: time, msg: msg, fields: fields}
 	if at < len(t.steps) {
 		t.steps = append(t.steps[:at+1], t.steps[at:]...)
 		t.steps[at] = newStep
