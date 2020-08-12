@@ -181,6 +181,7 @@ func (s *EtcdServer) monitorKVHash() {
 }
 
 func (s *EtcdServer) checkHashKV() error {
+	trace := traceutil.New("check_hash_kv", s.getLogger())
 	lg := s.getLogger()
 
 	h, rev, crev, err := s.kv.HashByRev(0)
@@ -190,7 +191,7 @@ func (s *EtcdServer) checkHashKV() error {
 	peers := s.getPeerHashKVs(rev)
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.Cfg.ReqTimeout())
-	err = s.linearizableReadNotify(ctx)
+	err = s.linearizableReadNotify(ctx, trace)
 	cancel()
 	if err != nil {
 		return err

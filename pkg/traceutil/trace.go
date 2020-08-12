@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -53,7 +54,9 @@ func writeFields(fields []Field) string {
 	return buf.String()
 }
 
+// Trace is safe to be shared between goroutines
 type Trace struct {
+	sync.RWMutex
 	operation    string
 	lg           *zap.Logger
 	fields       []Field
@@ -85,15 +88,21 @@ func Get(ctx context.Context) *Trace {
 }
 
 func (t *Trace) GetStartTime() time.Time {
+	t.RLock()
+	defer t.RUnlock()
 	return t.startTime
 }
 
 func (t *Trace) SetStartTime(time time.Time) {
+	t.Lock()
+	defer t.Unlock()
 	t.startTime = time
 }
 
 func (t *Trace) InsertStep(at int, time time.Time, msg string, fields ...Field) {
-	newStep := step{time, msg, fields}
+	t.Lock()
+	defer t.Unlock()
+	newStep := step{time: time, msg: msg, fields: fields}
 	if at < len(t.steps) {
 		t.steps = append(t.steps[:at+1], t.steps[at:]...)
 		t.steps[at] = newStep
@@ -104,6 +113,8 @@ func (t *Trace) InsertStep(at int, time time.Time, msg string, fields ...Field) 
 
 // Step adds step to trace
 func (t *Trace) Step(msg string, fields ...Field) {
+	t.Lock()
+	defer t.Unlock()
 	if !t.stepDisabled {
 		t.steps = append(t.steps, step{time: time.Now(), msg: msg, fields: fields})
 	}
@@ -147,6 +158,8 @@ func (t *Trace) LogWithStepThreshold(threshold time.Duration) {
 }
 
 func (t *Trace) logInfo(threshold time.Duration) (string, []zap.Field) {
+	t.Lock()
+	defer t.Unlock()
 	endTime := time.Now()
 	totalDuration := endTime.Sub(t.startTime)
 	traceNum := rand.Int31()

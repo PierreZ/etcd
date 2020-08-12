@@ -39,7 +39,7 @@ const (
 	// However, if the committed entries are very heavy to apply, the gap might grow.
 	// We should stop accepting new proposals if the gap growing to a certain point.
 	maxGapBetweenApplyAndCommitIndex = 5000
-	traceThreshold                   = 100 * time.Millisecond
+	TraceThreshold                   = 100 * time.Millisecond
 )
 
 type RaftKV interface {
@@ -104,11 +104,11 @@ func (s *EtcdServer) Range(ctx context.Context, r *pb.RangeRequest) (*pb.RangeRe
 				traceutil.Field{Key: "response_revision", Value: resp.Header.Revision},
 			)
 		}
-		trace.LogIfLong(traceThreshold)
+		trace.LogIfLong(TraceThreshold)
 	}(time.Now())
 
 	if !r.Serializable {
-		err = s.linearizableReadNotify(ctx)
+		err = s.linearizableReadNotify(ctx, trace)
 		trace.Step("agreement among raft nodes before linearized reading")
 		if err != nil {
 			return nil, err
@@ -145,8 +145,13 @@ func (s *EtcdServer) DeleteRange(ctx context.Context, r *pb.DeleteRangeRequest) 
 
 func (s *EtcdServer) Txn(ctx context.Context, r *pb.TxnRequest) (*pb.TxnResponse, error) {
 	if isTxnReadonly(r) {
+		trace := traceutil.New("transaction",
+			s.getLogger(),
+			traceutil.Field{Key: "read_only", Value: true},
+		)
 		if !isTxnSerializable(r) {
-			err := s.linearizableReadNotify(ctx)
+			err := s.linearizableReadNotify(ctx, trace)
+			trace.Step("agreement among raft nodes before linearized reading")
 			if err != nil {
 				return nil, err
 			}
@@ -159,6 +164,7 @@ func (s *EtcdServer) Txn(ctx context.Context, r *pb.TxnRequest) (*pb.TxnResponse
 
 		defer func(start time.Time) {
 			warnOfExpensiveReadOnlyTxnRequest(s.getLogger(), start, r, resp, err)
+			trace.LogIfLong(TraceThreshold)
 		}(time.Now())
 
 		get := func() { resp, err = s.applyV3Base.Txn(r) }
@@ -210,7 +216,7 @@ func (s *EtcdServer) Compact(ctx context.Context, r *pb.CompactionRequest) (*pb.
 	if result != nil && result.trace != nil {
 		trace = result.trace
 		defer func() {
-			trace.LogIfLong(traceThreshold)
+			trace.LogIfLong(TraceThreshold)
 		}()
 		applyStart := result.trace.GetStartTime()
 		result.trace.SetStartTime(startTime)
@@ -399,7 +405,17 @@ func (s *EtcdServer) AuthDisable(ctx context.Context, r *pb.AuthDisableRequest) 
 }
 
 func (s *EtcdServer) Authenticate(ctx context.Context, r *pb.AuthenticateRequest) (*pb.AuthenticateResponse, error) {
-	if err := s.linearizableReadNotify(ctx); err != nil {
+	trace := traceutil.New("authenticate",
+		s.getLogger(),
+		traceutil.Field{Key: "authenticate_name", Value: r.Name},
+	)
+
+	defer func(start time.Time) {
+		trace.LogIfLong(TraceThreshold)
+	}(time.Now())
+
+	ctx = context.WithValue(ctx, traceutil.TraceKey, trace)
+	if err := s.linearizableReadNotify(ctx, trace); err != nil {
 		return nil, err
 	}
 
@@ -571,7 +587,7 @@ func (s *EtcdServer) raftRequestOnce(ctx context.Context, r pb.InternalRaftReque
 		// and apply start time
 		result.trace.SetStartTime(startTime)
 		result.trace.InsertStep(0, applyStart, "process raft request")
-		result.trace.LogIfLong(traceThreshold)
+		result.trace.LogIfLong(TraceThreshold)
 	}
 	return result.resp, nil
 }
@@ -670,6 +686,7 @@ func (s *EtcdServer) Watchable() mvcc.WatchableKV { return s.KV() }
 
 func (s *EtcdServer) linearizableReadLoop() {
 	var rs raft.ReadState
+	var trace *traceutil.Trace
 
 	for {
 		ctxToSend := make([]byte, 8)
@@ -679,7 +696,7 @@ func (s *EtcdServer) linearizableReadLoop() {
 		select {
 		case <-leaderChangedNotifier:
 			continue
-		case <-s.readwaitc:
+		case trace = <-s.readwaitc:
 		case <-s.stopping:
 			return
 		}
@@ -756,6 +773,7 @@ func (s *EtcdServer) linearizableReadLoop() {
 		if !done {
 			continue
 		}
+		trace.Step("received read index responses")
 
 		if ai := s.getAppliedIndex(); ai < rs.Index {
 			select {
@@ -764,19 +782,20 @@ func (s *EtcdServer) linearizableReadLoop() {
 				return
 			}
 		}
+		trace.Step("ready to do a linearizable read")
 		// unblock all l-reads requested at indices before rs.Index
 		nr.notify(nil)
 	}
 }
 
-func (s *EtcdServer) linearizableReadNotify(ctx context.Context) error {
+func (s *EtcdServer) linearizableReadNotify(ctx context.Context, trace *traceutil.Trace) error {
 	s.readMu.RLock()
 	nc := s.readNotifier
 	s.readMu.RUnlock()
 
 	// signal linearizable loop for current notify if it hasn't been already
 	select {
-	case s.readwaitc <- struct{}{}:
+	case s.readwaitc <- trace:
 	default:
 	}
 
