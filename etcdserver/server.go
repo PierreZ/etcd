@@ -205,9 +205,9 @@ type EtcdServer struct {
 	w wait.Wait
 
 	readMu sync.RWMutex
-	// read routine notifies etcd server that it waits for reading by sending an empty struct to
+	// read routine notifies etcd server that it waits for reading by sending a Trace pointer to
 	// readwaitC
-	readwaitc chan struct{}
+	readwaitc chan *traceutil.Trace
 	// readNotifier is used to notify the read routine that it can process the request
 	// when there is no error
 	readNotifier *notifier
@@ -736,7 +736,7 @@ func (s *EtcdServer) start() {
 	s.stop = make(chan struct{})
 	s.stopping = make(chan struct{})
 	s.ctx, s.cancel = context.WithCancel(context.Background())
-	s.readwaitc = make(chan struct{}, 1)
+	s.readwaitc = make(chan *traceutil.Trace, 1)
 	s.readNotifier = newNotifier()
 	s.leaderChanged = make(chan struct{})
 	if s.ClusterVersion() != nil {

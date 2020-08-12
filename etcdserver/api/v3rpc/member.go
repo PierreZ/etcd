@@ -16,6 +16,7 @@ package v3rpc
 
 import (
 	"context"
+	"go.etcd.io/etcd/v3/pkg/traceutil"
 	"time"
 
 	"go.etcd.io/etcd/v3/etcdserver"
@@ -88,12 +89,22 @@ func (cs *ClusterServer) MemberUpdate(ctx context.Context, r *pb.MemberUpdateReq
 }
 
 func (cs *ClusterServer) MemberList(ctx context.Context, r *pb.MemberListRequest) (*pb.MemberListResponse, error) {
+	trace := traceutil.New("range", cs.server.Logger())
 	if r.Linearizable {
-		if err := cs.server.LinearizableReadNotify(ctx); err != nil {
+		if err := cs.server.LinearizableReadNotify(ctx, trace); err != nil {
 			return nil, togRPCError(err)
 		}
 	}
 	membs := membersToProtoMembers(cs.cluster.Members())
+	defer func(start time.Time) {
+		if membs != nil {
+			trace.AddField(
+				traceutil.Field{Key: "length_members", Value: len(membs)},
+			)
+		}
+		trace.LogIfLong(etcdserver.TraceThreshold)
+	}(time.Now())
+
 	return &pb.MemberListResponse{Header: cs.header(), Members: membs}, nil
 }
 
