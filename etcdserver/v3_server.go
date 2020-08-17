@@ -701,6 +701,8 @@ func (s *EtcdServer) linearizableReadLoop() {
 			return
 		}
 
+		start := time.Now()
+
 		nextnr := newNotifier()
 
 		s.readMu.Lock()
@@ -785,6 +787,7 @@ func (s *EtcdServer) linearizableReadLoop() {
 		trace.Step("ready to do a linearizable read")
 		// unblock all l-reads requested at indices before rs.Index
 		nr.notify(nil)
+		timeSpentReadLoopMs.Observe(float64(time.Since(start) / time.Millisecond))
 	}
 }
 

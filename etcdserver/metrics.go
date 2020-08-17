@@ -118,6 +118,15 @@ var (
 		Name:      "read_indexes_failed_total",
 		Help:      "The total number of failed read indexes seen.",
 	})
+	timeSpentReadLoopMs = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "etcd",
+		Subsystem: "server",
+		Name:      "time_spent_before_unlocking_reads",
+		Help:      "The time spent for each linearizable read loop",
+		// lowest bucket start of upper bound 0.001 sec (1 ms) with factor 2
+		// highest bucket start of 0.001 sec * 2^13 == 8.192 sec
+		Buckets: prometheus.ExponentialBuckets(0.001, 2, 14),
+	})
 	leaseExpired = prometheus.NewCounter(prometheus.CounterOpts{
 		Namespace: "etcd_debugging",
 		Subsystem: "server",
@@ -166,6 +175,7 @@ func init() {
 	prometheus.MustRegister(proposalsFailed)
 	prometheus.MustRegister(slowReadIndex)
 	prometheus.MustRegister(readIndexFailed)
+	prometheus.MustRegister(timeSpentReadLoopMs)
 	prometheus.MustRegister(leaseExpired)
 	prometheus.MustRegister(quotaBackendBytes)
 	prometheus.MustRegister(currentVersion)
