@@ -122,15 +122,21 @@ func (t *Trace) Step(msg string, fields ...Field) {
 
 // DisableStep sets the flag to prevent the trace from adding steps
 func (t *Trace) DisableStep() {
+	t.Lock()
+	defer t.Unlock()
 	t.stepDisabled = true
 }
 
 // EnableStep re-enable the trace to add steps
 func (t *Trace) EnableStep() {
+	t.Lock()
+	defer t.Unlock()
 	t.stepDisabled = false
 }
 
 func (t *Trace) AddField(fields ...Field) {
+	t.Lock()
+	defer t.Unlock()
 	for _, f := range fields {
 		t.fields = append(t.fields, f)
 	}
