@@ -687,6 +687,7 @@ func (s *EtcdServer) linearizableReadLoop() {
 		// as a single loop is can unlock multiple reads, it is not very useful
 		// to propagate the trace from Txn or Range.
 		trace := traceutil.New("linearizableReadLoop", s.lg)
+		start := time.Now()
 		nextnr := newNotifier()
 
 		s.readMu.Lock()
@@ -772,7 +773,9 @@ func (s *EtcdServer) linearizableReadLoop() {
 
 		// unblock all l-reads requested at indices before rs.Index
 		nr.notify(nil)
+
 		trace.LogIfLong(traceThreshold)
+		timeSpentWaitingForLinearizableRead.Observe(time.Since(start).Seconds())
 	}
 }
 
