@@ -684,6 +684,9 @@ func (s *EtcdServer) linearizableReadLoop() {
 			return
 		}
 
+		// as a single loop is can unlock multiple reads, it is not very useful
+		// to propagate the trace from Txn or Range.
+		trace := traceutil.New("linearizableReadLoop", s.lg)
 		nextnr := newNotifier()
 
 		s.readMu.Lock()
@@ -756,6 +759,7 @@ func (s *EtcdServer) linearizableReadLoop() {
 		if !done {
 			continue
 		}
+		trace.Step("read index received")
 
 		if ai := s.getAppliedIndex(); ai < rs.Index {
 			select {
@@ -764,8 +768,11 @@ func (s *EtcdServer) linearizableReadLoop() {
 				return
 			}
 		}
+		trace.Step("applied index is now lower than readState.Index")
+
 		// unblock all l-reads requested at indices before rs.Index
 		nr.notify(nil)
+		trace.LogIfLong(traceThreshold)
 	}
 }
 
