@@ -768,13 +768,13 @@ func (s *EtcdServer) linearizableReadLoop() {
 			case <-s.stopping:
 				return
 			}
+			trace.Step("applied index is now lower than readState.Index")
 		}
-		trace.Step("applied index is now lower than readState.Index")
 
 		// unblock all l-reads requested at indices before rs.Index
 		nr.notify(nil)
 
-		trace.LogIfLong(traceThreshold)
+		trace.LogAllStepsIfLong(traceThreshold)
 		timeSpentWaitingForLinearizableRead.Observe(time.Since(start).Seconds())
 	}
 }
